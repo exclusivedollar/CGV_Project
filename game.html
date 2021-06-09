@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<title>soundscapes</title>
+	<meta charset="utf-8">
+</head>
+
+<div id="k1"></div>
+<canvas id="map" width="250" height="250"> </canvas>
+<button id="restart" type="button" onClick="restart()"></button>
+<style>
+	#k1{
+		font: normal 24px/0 Verdana, Geneva, sans-serif;
+		position: absolute;
+		bottom: 26px;
+		left: 24px;
+		display: block;
+	}
+	#map{
+		position: absolute;
+		bottom: 0;
+		right: 0;
+		outline: black 1px solid;
+		margin: 10px;
+	}
+	#restart{
+		background: url('images/restart.png') no-repeat;
+		border: none;
+		position: absolute;
+		width: 60px;
+		height: 60px;
+		margin: 15px;
+	}
+</style>
+	
+<audio autoplay loop> <source src="audio/treefingers.mp3" type="audio/mpeg"> </audio>
+<body style="margin: 0">
+<script src="scripts/three.min.js"></script>
+<script src="scripts/OrbitControls.js"></script>
+<script src="scripts/OBJLoader.js"></script>
+<script src="scripts/MTLLoader.js"></script>
+
+<script>
+	var start_scene, kida, camera, renderer;
+	var controls, clock;
+	var particle_system;
+	var moveForward, moveBackward, moveLeft, moveRight, jump;
+	var raycaster = new THREE.Raycaster();
+	var mouse = new THREE.Vector2();
+	var mouseX = 0;
+	var mouseY = 0;
+	var targetX, targetY = 0;
+	var windowHalfX = window.innerWidth / 2;
+	var windowHalfY = window.innerHeight / 2;
+	var skyboxTexture, skybox;
+	var loaded = false;
+	var loader, mixer, animationClip, deer, idle;
+	var map_camera, firstRenderTarget, map_renderer, curr;
+	var current_object, current_clue;
+	
+	//INDEXED FACE SET FOR A PENTAGONAL PYRAMID
+	var pentPyramidVert = [[0, -5, 0], [-5, -2, 0], [-3, 4, 0], [3, 4, 0], [5, -2, 0], [0, 0, 10]];
+	var pentPyramidFaces = [[0, 5, 1], [1, 5, 2], [2, 5, 3], [3, 5, 4], [4, 5, 0]];
+	//Mountain geometry and material
+	var mountain_geom = new THREE.Geometry();
+		mountain_geom.vertices = [
+			new THREE.Vector3(pentPyramidVert[0][0], pentPyramidVert[0][1], pentPyramidVert[0][2]),
+			new THREE.Vector3(pentPyramidVert[1][0], pentPyramidVert[1][1], pentPyramidVert[1][2]),
+			new THREE.Vector3(pentPyramidVert[2][0], pentPyramidVert[2][1], pentPyramidVert[2][2]),
+			new THREE.Vector3(pentPyramidVert[3][0], pentPyramidVert[3][1], pentPyramidVert[3][2]),
+			new THREE.Vector3(pentPyramidVert[4][0], pentPyramidVert[4][1], pentPyramidVert[4][2]),
+			new THREE.Vector3(pentPyramidVert[5][0], pentPyramidVert[5][1], pentPyramidVert[5][2])
+		];
+	mountain_geom.faces = [
+			new THREE.Face3(pentPyramidFaces[0][0], pentPyramidFaces[0][1], pentPyramidFaces[0][2]),
+			new THREE.Face3(pentPyramidFaces[1][0], pentPyramidFaces[1][1], pentPyramidFaces[1][2]),
+			new THREE.Face3(pentPyramidFaces[2][0], pentPyramidFaces[2][1], pentPyramidFaces[2][2]),
+			new THREE.Face3(pentPyramidFaces[3][0], pentPyramidFaces[3][1], pentPyramidFaces[3][2]),
+			new THREE.Face3(pentPyramidFaces[4][0], pentPyramidFaces[4][1], pentPyramidFaces[4][2])
+		];
+	mountain_geom.computeFaceNormals();
+	var mountain_mat = new THREE.MeshPhongMaterial({color: "#ffffff", shininess: 15});
+	
+	//keyboard controls for movement
+	var onKeyDown = function ( event ) {
+		switch ( event.keyCode ) {
+			case 38: // up
+			case 87: // w
+				moveForward = true;
+				break;
+			case 37: // left
+			case 65: // a
+				moveLeft = true;
+				break;
+			case 40: // down
+			case 83: // s
+				moveBackward = true;
+				break;
+			case 39: // right
+			case 68: // d
+				moveRight = true;
+				break;
+			case 32:
+				jump = true;
+				break;
+		}
+	};
+
+	var onKeyUp = function ( event ) {
+		switch( event.keyCode ) {
+			case 38: // up
+			case 87: // w
+				moveForward = false;
+				break;
+			case 37: // left
+			case 65: // a
+				moveLeft = false;
+				break;
+			case 40: // down
+			case 83: // s
+				moveBackward = false;
+				break;
+			case 39: // right
+			case 68: // d
+				moveRight = false;
+				break;
+//			case 32:
+//				jump = false;
+//				break;
+		}
+	};
+	
+	//rotate camera when mouse is move relative to position 
+	function onMouseMove( event ) {
+		mouseX = ( event.clientX - windowHalfX );
+		mouseY = ( event.clientY - windowHalfY );
+	}
+	
+	//raycaster on mouse  click
+	function onClick(event){
+		mouse.x = ( event.clientX / window.innerWidth ) * 2 - 1;
+		mouse.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
+		doRaycasting();
+	}
+	
+	document.addEventListener( 'keydown', onKeyDown, false );
+	document.addEventListener( 'keyup', onKeyUp, false );
+	document.addEventListener( 'mousemove', onMouseMove, false );
+	document.addEventListener( 'click', onClick, false);
+	
+	var prevTime = performance.now();
+	var velocity = new THREE.Vector3();
+	
+	init();
+	animate();
+	
+
+	function init(){	//initializes the game
+		
+		kida = new THREE.Scene();
+		kida.fog = new THREE.Fog("black", 100, 1000);
+		
+		renderer = new THREE.WebGLRenderer({antialias:true});
+		renderer.setClearColor(0x0E0C0F);
+		renderer.setSize(window.innerWidth, window.innerHeight);
+		renderer.shadowMap.enabled = true;
+		document.body.appendChild(renderer.domElement);
+
+		camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 1, 1500);
+		camera.position.set(-100,5,0);
+		camera.lookAt(new THREE.Vector3(0, 5, 0));
+		kida.add(camera)
+		
+		map_renderer = new THREE.WebGLRenderer({canvas: map, antialias:true});
+		map_camera = new THREE.OrthographicCamera(window.innerHeight/-2, window.innerHeight/2, window.innerHeight/2, window.innerHeight/-2, 0.1, 1000);
+		map_camera.position.set(0, 400, -100);
+		map_camera.lookAt(new THREE.Vector3(0,0,0));
+		map_camera.rotation.z = -Math.PI/2;
+		
+		clock = new THREE.Clock();
+		
+		window.addEventListener('resize', onWindowResize);	//calls onWindowResize() when window is resized
+		
+		var light = new THREE.HemisphereLight( "#BFE5FE", "#BFE5FE", 0.8);
+		kida.add( light );
+		
+		var view_light = new THREE.PointLight("#ffffff", 0.35);
+		camera.add(view_light);
+		
+		var sunlight = new THREE.DirectionalLight("#ffc6cf");
+		sunlight.position.set(0, 100, 1000);
+		sunlight.castShadow = true;
+		sunlight.shadow = new THREE.LightShadow( new THREE.PerspectiveCamera( 90, 1, 0.1, 5000 ) );
+		sunlight.shadow.mapSize.width = 2048;
+		sunlight.shadow.mapSize.height = 2048;
+		sunlight.shadowMapDarkness = 0.4;
+		kida.add(sunlight);
+
+		doSkybox();
+		snow();
+		forest();
+		createMountainRanges();
+		placeClues();
+	
+//		loader = new THREE.JSONLoader();
+//		loader.load('models/deer.json', function (geometry, material){
+//			loaded=true;
+//			
+//			object = new THREE.Mesh(geometry, material);
+//			deer = new THREE.Object3D();
+//			deer.add(object);
+//			kida.add(deer);
+//			
+//			mixer = new THREE.AnimationMixer(deer);
+//			idle = mixer.clipAction(geometry.animations[0]);
+//			idle.play();
+//		});
+		
+		loadObjMtl('models/sign1.mtl', 'models/sign1.obj', 5.5, 0,0,0, 0,-Math.PI/2,0);
+		loadObjMtl('models/volcano.mtl', 'models/volcano.obj', 70, 800,0,240, 0,0,0);
+		loadObjMtl('models/bed.mtl', 'models/bed.obj', 10, 510,0,-850, 0,Math.PI,0);
+		loadObjMtl('models/stable.mtl', 'models/stable.obj', 12, 800,0,850, 0,0,0);
+		loadObjMtl('models/bunker.mtl', 'models/bunker.obj', 20, -655, 0, 800, 0,-Math.PI/2,0);
+		
+		loadObjMtl('models/lemon.mtl', 'models/lemon.obj', 2, 200,5,-175, 0,0,0, true, "object1", true);
+		loadObjMtl('models/flute.mtl', 'models/flute.obj', 8, 510, 0, -890,	5,0,Math.PI/2, true, "object2", true, false);
+		loadObjMtl('models/radiohead.mtl', 'models/radiohead.obj', -3.5, 830,5,310,  -Math.PI/2,0,0, true, "object3", true, false);
+		loadObjMtl('models/hat.mtl', 'models/hat.obj', 2.5, 610,0,280, 0,0,0, true, "object4", true, false);
+		loadObjMtl('models/hand.mtl', 'models/hand.obj', 20, -510,0,150, 0,0,0, true, "object5", true, false);
+		loadObjMtl('models/trex.mtl', 'models/trex.obj', 3, 815,7,850, 0,Math.PI/2,0, true, "object6", true, false);
+		loadObjMtl('models/compass.mtl', 'models/compass.obj', 4, 325, 5, -530, -Math.PI/4,0,0, true, "object7", true, false);
+		loadObjMtl('models/bomb.mtl', 'models/bomb.obj', 15, -665, 2, 820, 0,0,0, true, "object8", true, false);
+		loadObjMtl('models/bell.mtl', 'models/bell.obj', 0.02, -330,7,-610, 0,0,0, true, "object9", true, false);
+		
+		var geom = new THREE.SphereGeometry(15, 16, 32);
+		var mat = new THREE.MeshBasicMaterial({color: "red"});
+		curr = new THREE.Mesh(geom, mat);
+		curr.position.set(0,100,0);
+		camera.add(curr);
+
+		var geom = new THREE.BoxGeometry(85, 85, 85);
+		var mat = new THREE.MeshBasicMaterial({envMap: skyboxTexture});
+		mirrorBox = new THREE.Mesh(geom, mat);
+		mirrorBox.position.set(325, 35, -530);
+		kida.add(mirrorBox);
+		
+		var geom = new THREE.PlaneBufferGeometry(10000, 10000);
+		var mat = new THREE.MeshPhongMaterial({ color: "#F9F4EA"});//, bumpMap: THREE.ImageUtils.loadTexture("images/992.jpg"), bumpScale: 100});
+		var plane = new THREE.Mesh(geom, mat);
+		plane.rotation.x = -Math.PI/2;
+		plane.receiveShadow = true;
+		kida.add(plane);
+		
+		geom = new THREE.PlaneBufferGeometry(200, 200);
+		mat = new THREE.MeshLambertMaterial({ map: THREE.ImageUtils.loadTexture("images/parking.png") });
+		var parking = new THREE.Mesh(geom, mat);
+		parking.rotation.x = -Math.PI/2;
+		parking.position.set(-350, 0.1, -600);
+		kida.add(parking);
+	}
+	
+	
+	function animate(){
+		requestAnimationFrame(animate);
+		var delta = clock.getDelta();
+		
+		particle_system.rotation.y += 0.002;
+		particle_system.rotation.x += -0.002;
+		particle_system.rotation.z += -0.0002;
+		var pcount = 5000;
+		
+		playerControls();
+		
+//		if (loaded)	{mixer.update(delta);}
+//		mixer.update(delta);
+		
+		skybox.rotation.y -= 0.02;
+		
+		kida.fog.near = 0.1;
+		kida.fog.far = 0;
+		skybox.visible = false;
+		map_camera.position.x = camera.position.x;
+		map_camera.position.z = camera.position.z;
+		map_renderer.render(kida, map_camera);
+		skybox.visible = true;
+		kida.fog.near = 100;
+		kida.fog.far = 1000;
+		
+		renderer.render(kida, camera);
+		
+	}
+	
+	
+	//what to do when a clue or object is clicked
+	function doRaycasting(){
+		raycaster.setFromCamera( mouse, camera );
+		var intersects = raycaster.intersectObjects( kida.children , true);
+		if (intersects.length > 0){
+			for ( var i = 0; i < intersects.length; i++ ) {
+				var curr_object = intersects[i].object;
+				switch(curr_object.name){
+					case 'c1':
+						document.getElementById("k1").innerHTML="Clue #1: Yesterday I woke up sucking a lemon.";
+						current_object = kida.getObjectByName('object1');
+						current_clue = curr_object;
+						break;
+					case 'c2':
+						document.getElementById("k1").innerHTML="Clue #2: Standing in the shadows at the end of my bed.";
+						break;
+					case 'c3':
+						document.getElementById("k1").innerHTML="Clue #3: Volcano.";
+						break;
+					case 'c4':
+						document.getElementById("k1").innerHTML="Clue #4: I'm not here...this isn't happening.";
+						break;
+					case 'c5':
+						document.getElementById("k1").innerHTML="Clue #5: Treefingers.";
+						break;
+					case 'c6':
+						document.getElementById("k1").innerHTML="Clue #6: Fodder for the animals living on an animal farm.";
+						break;
+					case 'c7':
+						document.getElementById("k1").innerHTML="Clue #7: Inside the mirror cube.";
+						break;
+					case 'c8':
+						document.getElementById("k1").innerHTML="Clue #8: Who's in the bunker? Who's in the bunker?";
+						break;
+					case 'c9':
+						document.getElementById("k1").innerHTML="Clue #9: Where'd you park the car?.";
+						break;
+					case 'c10':
+						document.getElementById("k1").innerHTML="WELL DONE...YOU PASSED THE LEVEL!";
+						break;
+					case 'object1':
+						show_and_hide(curr_object, 'object2', 'c1', 'c2');
+						break;
+					case 'object2':
+						show_and_hide(curr_object, 'object3', 'c2', 'c3');
+						break;
+					case 'object3':
+						show_and_hide(curr_object, 'object4', 'c3', 'c4');
+						break;
+					case 'object4':
+						show_and_hide(curr_object, 'object5', 'c4', 'c5');
+						break;
+					case 'object5':
+						show_and_hide(curr_object, 'object6', 'c5', 'c6');
+						break;
+					case 'object6':
+						show_and_hide(curr_object, 'object7', 'c6', 'c7');
+						break;
+					case 'object7':
+						show_and_hide(curr_object, 'object8', 'c7', 'c8');
+						break;
+					case 'object8':
+						show_and_hide(curr_object, 'object9', 'c8', 'c9');
+						break;
+					case 'object9':
+						show_and_hide(curr_object, 'object9', 'c9', 'c10');
+						break;
+				}
+			}
+		}
+	}
+	
+	//function to load a .obj and associated .mtl file
+	function loadObjMtl(mtlpath, objpath, scaling, x, y, z, rx=0, ry=0, rz=0, has_shadow=true, name="", push_obj=false, vis=true){
+		var mtlloader = new THREE.MTLLoader();
+		mtlloader.load(mtlpath, function (materials){
+			materials.preload();
+			
+			var objloader = new THREE.OBJLoader();
+			objloader.setMaterials(materials);
+			objloader.load(objpath, function (object){
+				object.scale.set(scaling, scaling, scaling);
+				object.position.set(x, y, z);
+				object.rotation.set(rx, ry, rz);
+				object.castShadow = has_shadow;
+				object.name = name;
+				object.visible = vis;
+				object.traverse(function (child){
+					if (child instanceof THREE.Mesh){
+//						child.geometry.computeFaceNormals();
+						child.name = name;
+						child.castShadow = has_shadow;
+					}
+				});
+				kida.add(object);
+//				if (push_obj) {objects.push(object);}
+			});
+		});
+	}
+	
+	
+	function playerControls () {
+		// Are the controls enabled? (Does the browser have pointer lock?)
+		//if ( controls.controlsEnabled ) {
+
+		// Save the current time
+		var time = performance.now();
+		// Create a delta value based on current time
+		var delta = ( time - prevTime ) / 1000;
+
+		// Set the velocity.x and velocity.z using the calculated time delta
+		velocity.x -= velocity.x * 10.0 * delta;
+		velocity.z -= velocity.z * 10.0 * delta;
+
+		// As velocity.y is our "gravity," calculate delta
+		velocity.y -= 9.8 * 100.0 * delta; // 100.0 = mass
+
+		if ( moveForward ) {
+			velocity.z -= 1000.0 * delta;
+		}
+
+		if ( moveBackward ) {
+			velocity.z += 1000.0 * delta;
+		}
+
+		if ( moveLeft ) {
+			velocity.x -= 1000.0 * delta;
+		}
+
+		if ( moveRight ) {
+			velocity.x += 1000.0 * delta;
+		}
+		
+		if (jump){
+			camera.translateY(5)
+		}
+
+		// Update the position using the changed delta
+		camera.translateX( velocity.x * delta );
+		camera.translateY( velocity.y * delta );
+		camera.translateZ( velocity.z * delta );
+
+		// Prevent the camera/player from falling out of the 'world'
+		if ( camera.position.y < 10 ) {
+			velocity.y = 0;
+			camera.position.y = 10;
+			jump = false;
+		}
+
+		// Save the time for future delta calculations
+		prevTime = time;
+
+		targetX = -mouseX * .0003;
+		//targetY = -mouseY * .0003;
+		camera.rotation.y += 0.1 * (targetX);//camera.rotation.y );
+		//camera.rotation.x += 0.1 * (targetY- camera.rotation.x );
+	}
+	
+	
+	function onWindowResize(){
+		var WIDTH = window.innerWidth,
+			HEIGHT = window.innerHeight;
+		renderer.setSize(WIDTH, HEIGHT);
+		camera.aspect = WIDTH / HEIGHT;
+		camera.updateProjectionMatrix();
+	}
+	
+	//crates a new mountain using the mountain IFS
+	function newMountain(scale, x, y, rotate_y){
+		var mountain = new THREE.Mesh(mountain_geom, mountain_mat);
+		mountain.scale.set(scale, scale, scale);
+		mountain.position.set(x, 0, y);
+		mountain.rotation.x = -Math.PI/2;
+		mountain.rotation.z = rotate_y;
+		mountain.castShadow = true;
+		kida.add(mountain);
+	}
+	
+	//Creating a mountain range where each mountain is randomly rotated
+	function createMountainRanges(){
+		newMountain(10, 150, -150, (Math.random() * Math.PI*2));
+		newMountain(10, 150, -150, (Math.random() * Math.PI*2));
+		newMountain(8, 220, -130, (Math.random() * Math.PI*2));
+		newMountain(8, 220, -130, (Math.random() * Math.PI*2));
+		newMountain(11, 120, -100, (Math.random() * Math.PI*2));
+		newMountain(11, 120, -100, (Math.random() * Math.PI*2));
+		newMountain(6, 50, -85, (Math.random() * Math.PI*2));
+		newMountain(6, 50, -85, (Math.random() * Math.PI*2));
+		newMountain(11, 260, -200, (Math.random() * Math.PI*2));
+		newMountain(11, 260, -200, (Math.random() * Math.PI*2));
+		newMountain(10, 300, -270, (Math.random() * Math.PI*2));
+		newMountain(10, 300, -270, (Math.random() * Math.PI*2));
+		
+		for (var i=0; i<20;i++){
+			var size=Math.random()*3 + 3;
+			var x = Math.random()*2000-1000;
+			var y = Math.random()*2000-1000;
+			newMountain(size, x, y, (Math.random() * Math.PI*2));
+			newMountain(size, x, y, (Math.random() * Math.PI*2));
+		}
+	}
+
+	
+	function snow(){
+		var material = new THREE.PointsMaterial({color: "white", size: 4, sizeAttenuation: false,});
+		particles = new THREE.Geometry();
+		for (var i=0; i<5000; i++){
+			particle = new THREE.Vector3(Math.random() * 2000 - 1000, Math.random() *2000 - 1000, Math.random() * 2000 -1000);
+			particle.velocity = new THREE.Vector3(0, -Math.random(), 0);
+			particles.vertices.push(particle);
+		}
+		
+		particle_system = new THREE.Points(particles, material);
+		kida.add(particle_system);
+	}
+	
+	//places clues in their positions
+	function placeClues(){
+		clue(-7, 2.5, 10, 'c1', true);
+		clue(200, 2.5, -200, 'c2');
+		clue(500, 2.5, -900, 'c3');
+		clue(805, 2.5, 300, 'c4');
+		clue(600, 2.5, 300, 'c5');
+		clue(-355, 2.5, 196, 'c6');
+		clue(800, 2.5, 866, 'c7');
+		clue(300, 2.5, -550, 'c8');
+		clue(-650, 2.5, 800, 'c9');
+		clue(-350, 2.5, -600, 'c10');
+	}
+	
+	//function to create a red box for a clue
+	function clue(x, y, z, object_name, vis = false){
+		var cube_geom = new THREE.BoxGeometry(5, 5, 5);
+		var mat = new THREE.MeshLambertMaterial({color: "#e02100"});
+		var box = new THREE.Mesh(cube_geom, mat);
+		box.position.set(x, y, z);
+		box.visible = vis;
+		box.castShadow = true;
+		box.name = object_name;
+		kida.add(box);
+	}
+	
+	//creates a block of trees randomly
+	function forest(){
+		for (var i = 0; i < 50; i++){
+			loadObjMtl('models/tree.mtl', 'models/tree.obj', 10, -Math.random()*200 -300, 18, Math.random()*200, 0,0,0, true);
+		}
+		
+		for (var i = 0; i < 50; i++){
+			loadObjMtl('models/tree.mtl', 'models/tree.obj', 10, Math.random()*2000-1000, 18, Math.random()*2000-1000, 0,0,0, true);
+		}
+	}
+	
+	function doSkybox(){
+		var textureURLs = ["images/right.jpg", "images/left.jpg", "images/top.jpg", "images/bottom.jpg", "images/front.jpg", "images/back.jpg"];
+		skyboxTexture = THREE.ImageUtils.loadTextureCube( textureURLs );  //loads the texture for cubemap
+
+		var shader = THREE.ShaderLib[ "cube" ]; // contains the required shaders
+		shader.uniforms[ "tCube" ].value = skyboxTexture; // data for the shaders
+		var material = new THREE.ShaderMaterial( {
+				// A ShaderMaterial uses custom vertex and fragment shaders.
+			fragmentShader: shader.fragmentShader,
+			vertexShader: shader.vertexShader,
+			uniforms: shader.uniforms, 
+			depthWrite: false,
+			side: THREE.BackSide
+		} );
+
+		skybox = new THREE.Mesh( new THREE.CubeGeometry( 10000, 10000, 10000 ), material );
+		kida.add(skybox);
+	}
+	
+	function restart(){
+		current_object.visible = false;
+		current_clue.visible = false;
+		kida.getObjectByName('object1').visible=true;
+		kida.getObjectByName('c1').visible=true;
+		
+		camera.position.set(-100,5,0);
+		camera.lookAt(new THREE.Vector3(0, 5, 0));
+		document.getElementById("k1").innerHTML="Game restarted.";
+	}
+	
+	function show_and_hide(curr_obj, next_obj, curr_clue, next_clue){
+		curr_obj.parent.visible = false;
+		kida.getObjectByName(next_obj).visible = true;
+		kida.getObjectByName(curr_clue).visible = false;
+		kida.getObjectByName(next_clue).visible = true;
+	}
+</script>
+</body>
+</html>

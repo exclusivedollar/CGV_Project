@@ -1,0 +1,12 @@
+# Blender MTL File: 'lemon.blend'
+# Material Count: 1
+
+newmtl Material.001
+Ns 90.196078
+Ka 1.000000 1.000000 1.000000
+Kd 0.640000 0.473530 0.020994
+Ks 0.025000 0.025000 0.025000
+Ke 1.280000 0.947060 0.041988
+Ni 1.000000
+d 1.000000
+illum 2
