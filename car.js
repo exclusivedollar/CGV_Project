@@ -1,15 +1,22 @@
 const scene = new THREE.Scene();
+const scene2 = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 0.1, 1000 );
 const renderer = new THREE.WebGLRenderer();
+const camera2 = new THREE.PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 0.1, 1000 );
+const renderer2 = new THREE.WebGLRenderer();
 renderer.setClearColor(0x111111);
-renderer.setSize( window.innerWidth-50, window.innerHeight-50);
+renderer.setSize( window.innerWidth, window.innerHeight);
 renderer.ShadowMapEnabled= true;
 //renderer.ShadowMap.Type = THREE.BasicShadowMap;
-document.body.appendChild( renderer.domElement );
+document.getElementById("view1").appendChild( renderer.domElement );
+document.getElementById("view2").appendChild( renderer2.domElement );
 
 /*-------------------------------------------------------------------------------------------------------
 *	this sets up the world
 */
+
+controls = new THREE.OrbitControls( camera, renderer.domElement );
+
 const geometry = new THREE.BoxGeometry(500,1,500);
 const material = new THREE.MeshLambertMaterial({ color: 0x88ff88 });
 const cube = new THREE.Mesh( geometry, material );
@@ -33,6 +40,10 @@ scene.add(truck);
 camera.position.set( 0, 150,20);
 camera.lookAt( 0, 0, 0 );
 
+camera2.position.set( 0, 150,0);
+camera2.lookAt( 0, 0, 0 );
+
+controls.update();
 
 
 /*-------------------------------------------------------------------------------------------------------
@@ -81,10 +92,9 @@ var render = function()
 
 	//camera.position.x = x1;
 	//camera.position.z = 90 * Math.sin( angle );
-	if (view%2 == 1)
-	{
-		camera.lookAt( car.position.x, 0, car.position.z );
-	}
+	
+
+	
 	//camera.rotation.z = angle+(3*Math.PI/2) ;
 
 	dist = Math.sqrt(Math.pow((car.position.z - truck.position.z),2)+Math.pow((car.position.x - truck.position.x),2)+Math.pow((car.position.y - truck.position.y),2)) ;
@@ -104,6 +114,17 @@ var render = function()
 
 	if(!hit & goal<500)
 	{
+
+		if (view%2 == 1)
+		{
+			camera.position.z = 90 * Math.cos( -angleCar )-20;
+			camera.position.x = 90 * Math.sin( -angleCar )-30;
+			camera.lookAt( car.position.x, 0, car.position.z );
+		}
+		if (view%2 == 0)
+		{
+			controls.update();
+		}
 
 		sun.position.x = 100*Math.cos( angle2 );
 		sun.position.y = 100*Math.sin( angle2 );
@@ -133,8 +154,9 @@ var render = function()
 	}
 
 
+	
 	renderer.render(scene, camera);
-
+	renderer2.render(scene, camera2);
 	
 
 }
@@ -276,7 +298,7 @@ function move(event){
 			view += 1;
 			if (view%2==1)
 			{
-				camera.position.set( -30, 10,0);
+				camera.position.set( -30, 20,0);
 				camera.lookAt( -90, 0, 0 );
 			}
 			if (view%2==0)
